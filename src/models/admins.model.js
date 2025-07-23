@@ -34,6 +34,10 @@ const Admin = sequelizeCon.define(
     password: {
       type: DataTypes.STRING,
       allowNull: false,
+    },
+    commission : {
+      type : DataTypes.INTEGER,
+      allowNull: false,
     }
   },
   {

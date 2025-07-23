@@ -112,3 +112,66 @@ export const adminLogin = async (req, res) => {
     res.status(500).json({ message: "Server error.", error: error.message });
   }
 };
+
+
+export const updateAdminCommission = async (req, res) => {
+  try {
+    const { userName, commission } = req.body;
+
+    // Input validation
+    if (!userName || typeof commission !== "number" || commission < 0) {
+      return res.status(400).json({ message: "Invalid userName or commission." });
+    }
+
+    // Find admin by userName
+    const admin = await Admin.findOne({ where: { userName } });
+
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found." });
+    }
+
+    // Update commission
+    admin.commission = commission;
+    await admin.save();
+
+    res.status(200).json({
+      message: "Commission updated successfully.",
+      admin,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error.", error: error.message });
+  }
+};
+
+export const getAdminUsernamesAndCommissions = async (req, res) => {
+  try {
+    const admins = await Admin.findAll({
+      attributes: ["userName", "commission"], // Only these two fields
+    });
+
+    res.status(200).json({ admins });
+  } catch (error) {
+    res.status(500).json({ message: "Server error.", error: error.message });
+  }
+};
+
+export const deleteAdminByUserName = async (req, res) => {
+  try {
+    const { userName } = req.body;
+
+    if (!userName) {
+      return res.status(400).json({ message: "userName is required." });
+    }
+
+    // Find and delete the admin
+    const deleted = await Admin.destroy({ where: { userName } });
+
+    if (!deleted) {
+      return res.status(404).json({ message: "Admin not found." });
+    }
+
+    res.status(200).json({ message: "Admin deleted successfully." });
+  } catch (error) {
+    res.status(500).json({ message: "Server error.", error: error.message });
+  }
+};
