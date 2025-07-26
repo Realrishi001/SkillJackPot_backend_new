@@ -8,6 +8,7 @@ import printdTicekts from './src/routes/printedTickets.rotuer.js'
 import admins from './src/routes/admins.router.js'
 import winningPercentage from './src/routes/winningPercentage.routes.js'
 import winnings from './src/routes/getWinningNumbers.router.js'
+import dashboard from './src/routes/admindashboard.router.js'
 
 dotenv.config;
 
@@ -49,6 +50,7 @@ app.use("/api", printdTicekts);
 app.use("/api", admins);
 app.use("/api", winningPercentage);
 app.use("/api", winnings);
+app.use('/api', dashboard);
 
 // Start the server
 app.listen(port, ()=> {
