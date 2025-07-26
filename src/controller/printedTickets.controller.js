@@ -29,5 +29,36 @@ const savePrintedTickets = async (req, res) => {
         });
     }
 };
+const getPrintedTickets = async (req, res) => {
+  try {
+    const allTickets = await tickets.findAll({
+      attributes: ["id", "gameTime", "totalPoints"], // Removed ticketNumber as id is ticketNo
+      order: [["id", "DESC"]]
+    });
 
-export { savePrintedTickets };
+    const result = allTickets.map(t => {
+      // Split the date and time
+      let gameDate = "";
+      let gameTime = "";
+      if (typeof t.gameTime === "string") {
+        const [date, ...timeParts] = t.gameTime.split(" ");
+        gameDate = date || "";
+        gameTime = timeParts.join(" ") || "";
+      }
+      return {
+        ticketNo: t.id,        // Use id as ticketNo
+        gameDate,
+        gameTime,
+        totalPoints: t.totalPoints
+      };
+    });
+
+    return res.status(200).json({ message: "success", data: result });
+  } catch (err) {
+    console.error("Error fetching tickets:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+
+export { savePrintedTickets, getPrintedTickets };
