@@ -1,4 +1,6 @@
 import Admin from "../models/admins.model.js";
+import { tickets } from "../models/ticket.model.js";
+import { winningPercentage } from "../models/winningPercentage.model.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import dotenv from 'dotenv';
@@ -222,5 +224,119 @@ export const mainAdminLogin = async (req, res) => {
   } catch (error) {
     console.error("Main admin login error:", error);
     res.status(500).json({ message: "Server error.", error: error.message });
+  }
+};
+
+
+// update balance
+export const addAdminBalance = async (req, res) => {
+  try {
+    const { userName, amount } = req.body;
+
+    // Validate input
+    if (!userName || typeof amount !== "number" || isNaN(amount)) {
+      return res.status(400).json({ success: false, message: "Invalid userName or amount." });
+    }
+
+    // Find the admin
+    const admin = await Admin.findOne({ where: { userName } });
+
+    if (!admin) {
+      return res.status(404).json({ success: false, message: "Admin not found." });
+    }
+
+    // Add the amount to the current balance
+    admin.balance = admin.balance + amount;
+    await admin.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Balance updated successfully for ${userName}.`,
+      updatedBalance: admin.balance,
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while updating balance.",
+      error: error.message,
+    });
+  }
+};
+
+
+export const getAdminUsernamesAndBalance = async (req, res) => {
+  try {
+    const admins = await Admin.findAll({
+      attributes: ["userName", "balance"], 
+    });
+
+    res.status(200).json({ admins });
+  } catch (error) {
+    res.status(500).json({ message: "Server error.", error: error.message });
+  }
+};
+
+// for shop report
+export const getAdminDetails = async (req, res) => {
+  try {
+    // Fetch latest winning percentage (optional)
+    const latestWinning = await winningPercentage.findOne({
+      order: [["createdAt", "DESC"]],
+      attributes: ["percentage"],
+    });
+    const winningPercent = latestWinning ? parseFloat(latestWinning.percentage) : 0;
+
+    // Fetch all admins
+    const admins = await Admin.findAll({
+      attributes: ["id", "userName", "commission", "balance"],
+    });
+
+    const adminDetails = await Promise.all(
+      admins.map(async (admin) => {
+        // Fetch tickets for this admin
+        const ticketsData = await tickets.findAll({
+          where: { loginId: admin.id },
+          attributes: ["totalPoints"],
+        });
+
+        // Total tickets count
+        const totalTickets = ticketsData.length;
+
+        // Total points sum
+        const totalPoints = ticketsData.reduce((sum, t) => sum + (parseFloat(t.totalPoints) || 0), 0);
+
+        // Commission (shop amount)
+        const shopAmount = (totalPoints * (admin.commission || 0)) / 100;
+
+        // Net amount
+        const netAmount = totalPoints - shopAmount;
+
+        // Winning amount
+        const winningAmount = (netAmount * winningPercent) / 100;
+
+        return {
+          id: admin.id,
+          userName: admin.userName,
+          commission: admin.commission,
+          balance: admin.balance,
+          totalTickets,
+          totalPoints: Number(totalPoints.toFixed(2)),
+          shopAmount: Number(shopAmount.toFixed(2)),
+          netAmount: Number(netAmount.toFixed(2)),
+          winningAmount: Number(winningAmount.toFixed(2)),
+        };
+      })
+    );
+
+    res.status(200).json({ success: true, admins: adminDetails });
+  } catch (error) {
+    console.error("Error fetching admin details with net/shop amounts:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch admin details with net/shop amounts.",
+      error: error.message,
+    });
   }
 };

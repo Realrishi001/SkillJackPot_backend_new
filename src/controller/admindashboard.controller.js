@@ -6,32 +6,21 @@ import { winningPercentage } from "../models/winningPercentage.model.js";
 // Get admin count
 export const getAdminCount = async (req, res) => {
   try {
+    // Count total admins (shops)
     const adminCount = await Admin.count();
 
-    // Get today's date range (midnight to 23:59:59)
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
-
-    // Get today's ticket count
-    const ticketCountToday = await tickets.count({
-      where: {
-        createdAt: {
-          [Op.between]: [startOfDay, endOfDay]
-        }
-      }
-    });
+    // Count total tickets (no date filter)
+    const totalTickets = await tickets.count();
 
     res.status(200).json({
       success: true,
       totalAdmins: adminCount,
-      ticketsToday: ticketCountToday
+      totalTickets: totalTickets
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to fetch counts.",
+      message: "Failed to fetch total counts.",
       error: error.message
     });
   }

@@ -38,6 +38,10 @@ const Admin = sequelizeCon.define(
     commission : {
       type : DataTypes.INTEGER,
       allowNull: false,
+    },
+    balance : {
+      type : DataTypes.INTEGER,
+      allowNull : false,
     }
   },
   {
