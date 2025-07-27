@@ -10,6 +10,8 @@ import winningPercentage from './src/routes/winningPercentage.routes.js'
 import winnings from './src/routes/getWinningNumbers.router.js'
 import dashboard from './src/routes/admindashboard.router.js'
 import drawRouter from './src/routes/drawloadpoint.router.js'
+import summaryRouter from './src/routes/summary.router.js'
+import navbarRouter from './src/routes/navbar.router.js'
 
 dotenv.config;
 
@@ -53,6 +55,8 @@ app.use("/api", winningPercentage);
 app.use("/api", winnings);
 app.use('/api', dashboard);
 app.use("/api", drawRouter);
+app.use("/api", summaryRouter);
+app.use('/api', navbarRouter);
 
 // Start the server
 app.listen(port, ()=> {
