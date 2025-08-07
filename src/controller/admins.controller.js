@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import dotenv from 'dotenv';
 dotenv.config();
+import { sequelizeCon } from "../init/dbConnection.js";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -12,17 +13,33 @@ const JWT_SECRET = process.env.JWT_SECRET;
 export const createAdmin = async (req, res) => {
   try {
     const {
-      fullName,
+      shopName,
+      gstNumber,
+      panNumber,
+      contactPersonName,
+      contactPersonPhone,
+      contactPersonEmail,
+      openTime,
+      closeTime,
       userName,
       address,
       phoneNumber,
       emailAddress,
-      password
+      password,
+      commission = 0,    // Provide sensible defaults if required
+      balance = 0
     } = req.body;
 
     // Simple required fields validation
     if (
-      !fullName ||
+      !shopName ||
+      !gstNumber ||
+      !panNumber ||
+      !contactPersonName ||
+      !contactPersonPhone ||
+      !contactPersonEmail ||
+      !openTime ||
+      !closeTime ||
       !userName ||
       !address ||
       !phoneNumber ||
@@ -40,12 +57,21 @@ export const createAdmin = async (req, res) => {
 
     // Create admin (password will be hashed by hook)
     const admin = await Admin.create({
-      fullName,
+      shopName,
+      gstNumber,
+      panNumber,
+      contactPersonName,
+      contactPersonPhone,
+      contactPersonEmail,
+      openTime,
+      closeTime,
       userName,
       address,
       phoneNumber,
       emailAddress,
-      password
+      password,
+      commission,
+      balance
     });
 
     // Don’t return password in response
@@ -64,9 +90,18 @@ export const createAdmin = async (req, res) => {
 
 export const getAllAdmins = async (req, res) => {
   try {
-    // Only select userName, fullName, phoneNumber, emailAddress
+    // Select only the required fields
     const admins = await Admin.findAll({
-      attributes: ["userName", "fullName", "phoneNumber", "emailAddress"]
+      attributes: [
+        "id",
+        "shopName",
+        "address",
+        "phoneNumber",
+        "userName",
+        "password",
+        "commission",
+        "balance"
+      ]
     });
 
     res.status(200).json({
@@ -116,6 +151,77 @@ export const adminLogin = async (req, res) => {
 };
 
 
+
+export const updateAdmin = async (req, res) => {
+  try {
+    const {
+      id,
+      shopName,
+      gstNumber,
+      panNumber,
+      contactPersonName,
+      contactPersonPhone,
+      contactPersonEmail,
+      openTime,
+      closeTime,
+      userName,
+      address,
+      phoneNumber,
+      emailAddress,
+      password, // only update if provided
+      commission,
+      balance
+    } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ message: "Admin ID is required." });
+    }
+
+    // Find admin by ID
+    const admin = await Admin.findByPk(id);
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found." });
+    }
+
+    // Merge new values with existing (undefined/null/"") falls back to DB value
+    const updateData = {
+      shopName: shopName ?? admin.shopName,
+      gstNumber: gstNumber ?? admin.gstNumber,
+      panNumber: panNumber ?? admin.panNumber,
+      contactPersonName: contactPersonName ?? admin.contactPersonName,
+      contactPersonPhone: contactPersonPhone ?? admin.contactPersonPhone,
+      contactPersonEmail: contactPersonEmail ?? admin.contactPersonEmail,
+      openTime: openTime ?? admin.openTime,
+      closeTime: closeTime ?? admin.closeTime,
+      userName: userName ?? admin.userName,
+      address: address ?? admin.address,
+      phoneNumber: phoneNumber ?? admin.phoneNumber,
+      emailAddress: emailAddress ?? admin.emailAddress,
+      commission: commission !== undefined && commission !== null && commission !== "" ? commission : admin.commission,
+      balance: balance !== undefined && balance !== null && balance !== "" ? balance : admin.balance
+    };
+
+    // Only hash and update password if provided & non-empty
+    if (password && password.trim() !== "") {
+      const salt = await bcrypt.genSalt(10);
+      updateData.password = await bcrypt.hash(password, salt);
+    }
+
+    await admin.update(updateData);
+
+    const { password: _pw, ...adminData } = admin.toJSON();
+    res.status(200).json({
+      message: "Admin updated successfully.",
+      admin: adminData
+    });
+  } catch (error) {
+    console.error("Error updating admin:", error);
+    res.status(500).json({ message: "Server error.", error: error.message });
+  }
+};
+
+
+
 export const updateAdminCommission = async (req, res) => {
   try {
     const { userName, commission } = req.body;
@@ -144,6 +250,41 @@ export const updateAdminCommission = async (req, res) => {
     res.status(500).json({ message: "Server error.", error: error.message });
   }
 };
+
+export const deleteAdmin = async (req, res) => {
+  const { id } = req.body; // id should be the admin's id
+
+  if (!id) {
+    return res.status(400).json({ error: "Admin id is required." });
+  }
+
+  // Optional: Use a transaction for safety
+  const t = await sequelizeCon.transaction();
+  try {
+    // 1. Find admin by id
+    const admin = await Admin.findByPk(id, { transaction: t });
+    if (!admin) {
+      await t.rollback();
+      return res.status(404).json({ error: "Admin not found." });
+    }
+
+    // 2. Delete from admins
+    await Admin.destroy({
+      where: { id },
+      transaction: t,
+    });
+
+    // 3. Commit
+    await t.commit();
+
+    res.json({ message: "Admin deleted successfully." });
+  } catch (error) {
+    await t.rollback();
+    console.error("Error deleting admin:", error);
+    res.status(500).json({ error: "Something went wrong." });
+  }
+};
+
 
 export const getAdminUsernamesAndCommissions = async (req, res) => {
   try {

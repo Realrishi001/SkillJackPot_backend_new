@@ -9,7 +9,36 @@ const Admin = sequelizeCon.define(
       primaryKey: true,
       autoIncrement: true,
     },
-    fullName: {
+    shopName: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    gstNumber: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    panNumber: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    contactPersonName: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    contactPersonPhone: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    contactPersonEmail: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      validate: { isEmail: true },
+    },
+    openTime: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    closeTime: {
       type: DataTypes.STRING,
       allowNull: false,
     },
@@ -35,14 +64,14 @@ const Admin = sequelizeCon.define(
       type: DataTypes.STRING,
       allowNull: false,
     },
-    commission : {
-      type : DataTypes.INTEGER,
+    commission: {
+      type: DataTypes.INTEGER,
       allowNull: false,
     },
-    balance : {
-      type : DataTypes.INTEGER,
-      allowNull : false,
-    }
+    balance: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
   },
   {
     timestamps: true,
