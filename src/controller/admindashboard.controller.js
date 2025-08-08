@@ -2,8 +2,9 @@ import { Op } from "sequelize";
 import { tickets } from "../models/ticket.model.js";
 import Admin from "../models/admins.model.js";
 import { winningPercentage } from "../models/winningPercentage.model.js";
+import { cancelledTickets } from "../models/cancelledTicket.model.js";
 
-// Get admin count
+// Get admin/ticket/cancelled counts
 export const getAdminCount = async (req, res) => {
   try {
     // Count total admins (shops)
@@ -12,16 +13,20 @@ export const getAdminCount = async (req, res) => {
     // Count total tickets (no date filter)
     const totalTickets = await tickets.count();
 
+    // Count total cancelled tickets (no date filter)
+    const totalCancelledTickets = await cancelledTickets.count();
+
     res.status(200).json({
       success: true,
       totalAdmins: adminCount,
-      totalTickets: totalTickets
+      totalTickets: totalTickets,
+      totalCancelledTickets: totalCancelledTickets,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: "Failed to fetch total counts.",
-      error: error.message
+      error: error.message,
     });
   }
 };

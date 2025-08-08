@@ -11,27 +11,27 @@ const superAdmin = sequelizeCon.define(
         },
         fullName : {
             type: DataTypes.STRING,
-            allowNull : false
+            allowNull : true
         },
         userName: {
             type : DataTypes.STRING,
-            allowNull: false
+            allowNull: true
         },
         address : {
             type : DataTypes.TEXT,
-            allowNull : false
+            allowNull : true
         },
         phoneNumber : {
             type : DataTypes.STRING,
-            allowNull : false
+            allowNull : true
         },
         emailAddress : {
             type : DataTypes.STRING,
-            allowNull : false
+            allowNull : true
         },
         password : {
             type : DataTypes.STRING,
-            allowNull: false,
+            allowNull: true,
         }
     },{
         timestamps : true,

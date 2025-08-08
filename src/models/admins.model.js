@@ -11,66 +11,64 @@ const Admin = sequelizeCon.define(
     },
     shopName: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     gstNumber: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     panNumber: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     contactPersonName: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     contactPersonPhone: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     contactPersonEmail: {
       type: DataTypes.STRING,
-      allowNull: false,
-      validate: { isEmail: true },
+      allowNull: true,
     },
     openTime: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     closeTime: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     userName: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     address: {
       type: DataTypes.TEXT,   // long text for address
-      allowNull: false,
+      allowNull: true,
     },
     phoneNumber: {
       type: DataTypes.STRING, // STRING to allow formatted numbers
-      allowNull: false,
+      allowNull: true,
     },
     emailAddress: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
       unique: true,
-      validate: { isEmail: true },
     },
     password: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     commission: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
     },
     balance: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
     },
   },
   {

@@ -13,49 +13,32 @@ const JWT_SECRET = process.env.JWT_SECRET;
 export const createAdmin = async (req, res) => {
   try {
     const {
-      shopName,
-      gstNumber,
-      panNumber,
-      contactPersonName,
-      contactPersonPhone,
-      contactPersonEmail,
-      openTime,
-      closeTime,
-      userName,
-      address,
-      phoneNumber,
-      emailAddress,
-      password,
-      commission = 0,    // Provide sensible defaults if required
+      shopName = "",
+      gstNumber = "",
+      panNumber = "",
+      contactPersonName = "",
+      contactPersonPhone = "",
+      contactPersonEmail = "",
+      openTime = "",
+      closeTime = "",
+      userName = "",
+      address = "",
+      phoneNumber = "",
+      emailAddress = "",
+      password = "",
+      commission = 0,
       balance = 0
     } = req.body;
 
-    // Simple required fields validation
-    if (
-      !shopName ||
-      !gstNumber ||
-      !panNumber ||
-      !contactPersonName ||
-      !contactPersonPhone ||
-      !contactPersonEmail ||
-      !openTime ||
-      !closeTime ||
-      !userName ||
-      !address ||
-      !phoneNumber ||
-      !emailAddress ||
-      !password
-    ) {
-      return res.status(400).json({ message: "All fields are required." });
+    // Check for existing email if provided
+    if (emailAddress) {
+      const existing = await Admin.findOne({ where: { emailAddress } });
+      if (existing) {
+        return res.status(409).json({ message: "Email already registered." });
+      }
     }
 
-    // Check for existing email
-    const existing = await Admin.findOne({ where: { emailAddress } });
-    if (existing) {
-      return res.status(409).json({ message: "Email already registered." });
-    }
-
-    // Create admin (password will be hashed by hook)
+    // Create admin (password will be hashed by hook if not empty)
     const admin = await Admin.create({
       shopName,
       gstNumber,
@@ -74,7 +57,7 @@ export const createAdmin = async (req, res) => {
       balance
     });
 
-    // Don’t return password in response
+    // Remove password from response
     const { password: _pw, ...adminData } = admin.toJSON();
 
     res.status(201).json({
@@ -86,6 +69,7 @@ export const createAdmin = async (req, res) => {
     res.status(500).json({ message: "Server error.", error: error.message });
   }
 };
+
 
 
 export const getAllAdmins = async (req, res) => {
