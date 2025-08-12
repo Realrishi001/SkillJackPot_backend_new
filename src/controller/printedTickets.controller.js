@@ -7,18 +7,29 @@ import { tickets } from "../models/ticket.model.js";
 export const savePrintedTickets = async (req, res) => {
   const t = await sequelizeCon.transaction();
   try {
-    let { gameTime, ticketNumber, totalQuatity, totalPoints, loginId, drawTime } = req.body;
+    let {
+      gameTime,
+      ticketNumber,
+      totalQuatity,
+      totalPoints,
+      loginId,
+      drawTime,
+    } = req.body;
 
     // Basic validations
     if (!Array.isArray(drawTime) || drawTime.length === 0) {
       await t.rollback();
-      return res.status(400).json({ message: "drawTime must be a non-empty array." });
+      return res
+        .status(400)
+        .json({ message: "drawTime must be a non-empty array." });
     }
 
     const points = Number(totalPoints);
     if (!Number.isFinite(points) || points < 0) {
       await t.rollback();
-      return res.status(400).json({ message: "totalPoints must be a non-negative number." });
+      return res
+        .status(400)
+        .json({ message: "totalPoints must be a non-negative number." });
     }
 
     if (!loginId) {
@@ -61,7 +72,7 @@ export const savePrintedTickets = async (req, res) => {
         ticketNumber,
         totalQuatity,
         totalPoints: points,
-        drawTime, // array is fine if your model column supports JSON/ARRAY/TEXT(JSON)
+        drawTime, // Ensure the model column supports this type (e.g., JSON/ARRAY/TEXT)
       },
       { transaction: t }
     );
@@ -70,14 +81,18 @@ export const savePrintedTickets = async (req, res) => {
     return res.status(201).json({
       message: "Ticket saved and balance deducted successfully.",
       ticket: newTicket,
+      ticketId: newTicket.id, 
       newBalance: admin.balance,
     });
   } catch (error) {
     console.error("Error saving ticket:", error);
-    try { await t.rollback(); } catch {}
+    try {
+      await t.rollback();
+    } catch {}
     return res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
 
 const getPrintedTickets = async (req, res) => {
   try {
