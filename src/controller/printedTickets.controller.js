@@ -76,7 +76,7 @@ export const savePrintedTickets = async (req, res) => {
         required: finalDeductPoints,
       });
     }
-
+    
     // --- Deduct balance after applying commission ---
     admin.balance = currentBalance - finalDeductPoints;
     await admin.save({ transaction: t });

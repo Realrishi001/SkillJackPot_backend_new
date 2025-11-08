@@ -61,8 +61,6 @@ function getTotalQuantity(ticketNumbersArr) {
   }, 0);
 }
 
-// -------- CONTROLLERS --------
-
 // 1. Check if ticket is a winner
 export const checkTicketWinningStatus = async (req, res) => {
   try {
@@ -132,16 +130,44 @@ export const checkTicketWinningStatus = async (req, res) => {
         winningNums.forEach(obj => allWinningNumbersSet.add(obj.number));
       }
 
-      // Check each ticket number
-      const matches = ticketNumbersArr
-        .map(num => {
-          const match = Array.isArray(winningNums) ? winningNums.find(obj => obj.number === num) : null;
-          if (match) {
-            return { number: num, winningValue: match.value, drawTime: dt };
-          }
-          return null;
-        })
-        .filter(Boolean);
+// Assuming 180 is the payout rate per ticket (you can change if dynamic)
+const PAYOUT_RATE = 180;
+
+// Fast lookup map for quantities if available
+const qtyMap = new Map();
+ticketNumbersArr.forEach(t => {
+  if (typeof t === "object" && t.ticketNumber) {
+    qtyMap.set(t.ticketNumber, t.quantity || 0);
+  } else if (typeof t === "string") {
+    // fallback if ticketNumbersArr is array of strings
+    const cleaned = t.replace(/[^0-9]/g, "");
+    qtyMap.set(cleaned, 1);
+  }
+});
+
+const matches = ticketNumbersArr
+  .map(num => {
+    const ticketNum = typeof num === "object" ? num.ticketNumber : num;
+    const match = Array.isArray(winningNums)
+      ? winningNums.find(obj => obj.number === ticketNum)
+      : null;
+    if (match) {
+      const quantity = qtyMap.get(ticketNum) || 0;
+      const perTicketValue = Number(match.value) || PAYOUT_RATE;
+      const totalWinningValue = perTicketValue * quantity;
+
+      return {
+        number: ticketNum,
+        quantity,
+        winningValue: perTicketValue,
+        totalWinningValue,
+        drawTime: dt
+      };
+    }
+    return null;
+  })
+  .filter(Boolean);
+
 
       if (matches.length > 0) {
         anyWinning = true;
@@ -248,7 +274,6 @@ function parseTicketNumberAny(raw) {
   return out;
 }
 
-/* ======================= Controller ======================= */
 
 export const claimTicket = async (req, res) => {
   try {
@@ -281,10 +306,10 @@ export const claimTicket = async (req, res) => {
     }
 
     // Normalize fields
-    const drawDateDDMMYYYY = extractDate(ticket.gameTime);    // "DD-MM-YYYY"
-    const drawDateISO = toYYYYMMDD(drawDateDDMMYYYY);         // "YYYY-MM-DD"
-    const ticketDrawTimes = toTimeArray(ticket.drawTime);     // ["10:45 PM", ...]
-    const ticketNumbers = parseTicketNumberAny(ticket.ticketNumber); // [{ticketNumber, quantity}]
+    const drawDateDDMMYYYY = extractDate(ticket.gameTime);    
+    const drawDateISO = toYYYYMMDD(drawDateDDMMYYYY);         
+    const ticketDrawTimes = toTimeArray(ticket.drawTime);     
+    const ticketNumbers = parseTicketNumberAny(ticket.ticketNumber);
 
     // Fast lookup for quantity by ticket number
     const qtyByTicket = new Map(ticketNumbers.map(t => [t.ticketNumber, t.quantity]));
