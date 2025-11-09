@@ -3,53 +3,64 @@ import Admin from "../models/admins.model.js";
 import { winningPercentage } from "../models/winningPercentage.model.js";
 import { winningNumbers } from "../models/winningNumbers.model.js";
 
+/* ---------------------- Helper Functions ---------------------- */
 
-// 🔹 Extract the series prefix (first 2 digits) from a ticket number
+// 🔹 Get the prefix (first 2 digits)
 function getSeries(numStr) {
   if (numStr.length < 4) return null;
   return numStr.slice(0, 2);
 }
 
+// 🔹 Random 2-digit number between 10–99
 function getRandomTwoDigits() {
-  return Math.floor(Math.random() * 90 + 10); // → returns between 10–99
+  return Math.floor(Math.random() * 90 + 10);
 }
 
-/* ---------------------- Helper: Get All Prefix Numbers ---------------------- */
+// 🔹 Get all base numbers for a given prefix (10, 30, 50)
 function getPrefixList(prefix) {
-  // Each series (10, 30, 50) has numbers 0–9 suffix
+  // Generates 10 base entries for each series (10xx, 30xx, 50xx)
   return Array.from({ length: 10 }, (_, i) => `${prefix}${i}`);
 }
 
-/* ---------------------- Helper: Build a Full 10-Entry Series ---------------------- */
+/* ---------------------- Build a Full 10-Entry Series ---------------------- */
 function buildFullSeries(prefix, allNumbers) {
-  // Get all numbers that start with prefix (e.g., "10", "30", "50")
   const matches = allNumbers.filter((n) => n.number.startsWith(prefix));
-  const list = [];
+  const used = new Set(matches.map((m) => m.number));
+  const list = [...matches];
 
-  // If fewer than 10 found, fill missing with zeros
-  for (let i = 0; i < 10; i++) {
-    const num = matches[i] || { number: `${prefix}${i}`, value: 0 };
-    list.push({ number: num.number, value: Number(num.value) || 0 });
+  while (list.length < 10) {
+    const rand = `${prefix}${String(getRandomTwoDigits()).padStart(2, "0")}`;
+    if (!used.has(rand)) {
+      used.add(rand);
+      list.push({ number: rand, value: 0 });
+    }
   }
-  return list;
+
+  return list.map((num) => ({
+    number: num.number,
+    value: Number(num.value) || 0,
+  }));
 }
 
-/* ---------------------- Helper: Choose Winners for a Series ---------------------- */
+/* ---------------------- Choose Top 10 Winners for a Series ---------------------- */
 function makeSeriesWinners(prefix, allTickets) {
   const list = allTickets.filter((t) => t.number.startsWith(prefix));
-
-  // Sort descending by value → pick top 10 highest
   const sorted = list.sort((a, b) => b.value - a.value);
-
-  // Fill missing with zero-value random numbers
   const winners = [];
+  const used = new Set();
+
   for (let i = 0; i < 10; i++) {
-    if (sorted[i]) winners.push(sorted[i]);
-    else
-      winners.push({
-        number: `${prefix}${getRandomTwoDigits()}`,
-        value: 0,
-      });
+    if (sorted[i] && !used.has(sorted[i].number)) {
+      winners.push(sorted[i]);
+      used.add(sorted[i].number);
+    } else {
+      let randNum;
+      do {
+        randNum = `${prefix}${String(getRandomTwoDigits()).padStart(2, "0")}`;
+      } while (used.has(randNum));
+      used.add(randNum);
+      winners.push({ number: randNum, value: 0 });
+    }
   }
 
   return winners;
@@ -59,6 +70,7 @@ function makeSeriesWinners(prefix, allTickets) {
 export const getTicketsByDrawTime = async (req, res) => {
   try {
     const { drawTime, adminId } = req.body;
+
     if (!drawTime || !adminId) {
       return res
         .status(400)
@@ -78,13 +90,11 @@ export const getTicketsByDrawTime = async (req, res) => {
     });
 
     if (existingResult) {
-      // Parse winning numbers JSON if stored as string
       const storedNumbers =
         typeof existingResult.winningNumbers === "string"
           ? JSON.parse(existingResult.winningNumbers)
           : existingResult.winningNumbers;
 
-      // Always group and return 10 per series
       const series10 = buildFullSeries("10", storedNumbers);
       const series30 = buildFullSeries("30", storedNumbers);
       const series50 = buildFullSeries("50", storedNumbers);
@@ -114,7 +124,7 @@ export const getTicketsByDrawTime = async (req, res) => {
       attributes: ["ticketNumber", "totalPoints", "drawTime", "loginId"],
     });
 
-    // 3️⃣ Filter by admin & drawTime
+    // 3️⃣ Filter tickets by admin & drawTime
     const filtered = allTickets.filter((ticket) => {
       if (String(ticket.loginId) !== String(adminId)) return false;
       if (!ticket.drawTime) return false;
@@ -141,13 +151,22 @@ export const getTicketsByDrawTime = async (req, res) => {
       return res.status(404).json({ message: "Admin not found." });
     }
 
-    // 4️⃣ No tickets → fill zero series
+    // 4️⃣ No tickets → create zero-filled results
     if (!filtered.length) {
-      const fillSeries = (prefix) =>
-        getPrefixList(prefix).map((pfx) => ({
-          number: pfx + getRandomTwoDigits(),
-          value: 0,
-        }));
+      const fillSeries = (prefix) => {
+        const used = new Set();
+        const arr = [];
+        while (arr.length < 10) {
+          const num = `${prefix}${String(
+            getRandomTwoDigits()
+          ).padStart(2, "0")}`;
+          if (!used.has(num)) {
+            used.add(num);
+            arr.push({ number: num, value: 0 });
+          }
+        }
+        return arr;
+      };
 
       const fill10 = fillSeries("10");
       const fill30 = fillSeries("30");
@@ -177,7 +196,7 @@ export const getTicketsByDrawTime = async (req, res) => {
       });
     }
 
-    // 5️⃣ Combine ticket data into {number, value}
+    // 5️⃣ Combine all ticket data → {number, value}
     const ticketMap = {};
     filtered.forEach((ticket) => {
       let ticketStr = ticket.ticketNumber;
@@ -211,7 +230,7 @@ export const getTicketsByDrawTime = async (req, res) => {
       })
     );
 
-    // 6️⃣ Pick winners for each series
+    // 6️⃣ Generate winners for each series (unique 4-digit)
     const series10 = makeSeriesWinners("10", allTicketEntries);
     const series30 = makeSeriesWinners("30", allTicketEntries);
     const series50 = makeSeriesWinners("50", allTicketEntries);
@@ -219,7 +238,7 @@ export const getTicketsByDrawTime = async (req, res) => {
     const selectedTickets = [...series10, ...series30, ...series50];
     const numbersBySeries = { "10": series10, "30": series30, "50": series50 };
 
-    // 7️⃣ Calculate totals
+    // 7️⃣ Compute totals and commissions
     const totalPoints = filtered.reduce(
       (sum, ticket) => sum + Number(ticket.totalPoints),
       0
@@ -239,7 +258,7 @@ export const getTicketsByDrawTime = async (req, res) => {
       afterCommission * (winningPercent / 100)
     );
 
-    // 8️⃣ Save results
+    // 8️⃣ Save final winning numbers
     await winningNumbers.create({
       loginId: adminId,
       winningNumbers: selectedTickets,
