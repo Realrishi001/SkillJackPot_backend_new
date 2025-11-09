@@ -9,6 +9,59 @@ import { sequelizeCon } from "../init/dbConnection.js";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
+
+export const changeAdminPassword = async (req, res) => {
+  try {
+    const { userName, oldPassword, newPassword } = req.body;
+
+    // 1️⃣ Check required fields
+    if (!userName || !oldPassword || !newPassword) {
+      return res.status(400).json({
+        status: "error",
+        message: "Please provide userName, oldPassword, and newPassword.",
+      });
+    }
+
+    // 2️⃣ Find admin by username
+    const admin = await Admin.findOne({ where: { userName } });
+
+    if (!admin) {
+      return res.status(404).json({
+        status: "error",
+        message: "Admin not found.",
+      });
+    }
+
+    // 3️⃣ Compare old password
+    const isMatch = await bcrypt.compare(oldPassword, admin.password);
+    if (!isMatch) {
+      return res.status(401).json({
+        status: "error",
+        message: "Incorrect old password.",
+      });
+    }
+
+    // 4️⃣ Hash and update new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    await admin.update({ password: hashedPassword });
+
+    // 5️⃣ Respond success
+    return res.status(200).json({
+      status: "success",
+      message: "Password updated successfully.",
+    });
+  } catch (error) {
+    console.error("🔥 Error changing password:", error);
+    return res.status(500).json({
+      status: "error",
+      message: "Internal server error.",
+    });
+  }
+};
+
+
 // Create Admin Controller
 export const createAdmin = async (req, res) => {
   try {
@@ -236,8 +289,8 @@ export const updateAdminCommission = async (req, res) => {
 };
 
 export const deleteAdmin = async (req, res) => {
-  const { id } = req.body; // id should be the admin's id
-
+  const { id } = req.body; 
+  console.log(id);
   if (!id) {
     return res.status(400).json({ error: "Admin id is required." });
   }

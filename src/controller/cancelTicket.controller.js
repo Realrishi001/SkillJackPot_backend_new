@@ -1,157 +1,299 @@
 import { tickets } from "../models/ticket.model.js";
-import { sequelizeCon } from "../init/dbConnection.js";
 import { cancelledTickets } from "../models/cancelledTicket.model.js";
+import { sequelizeCon } from "../init/dbConnection.js";
 import { Op } from "sequelize";
 
-// Helper: format date as YYYY-MM-DD
-function getTodayDateString() {
-  const today = new Date();
-  return today.toISOString().split("T")[0];
+/* ---------- Helpers ---------- */
+
+// Get today's date (YYYY-MM-DD)
+function todayDateStr() {
+  return new Date().toISOString().split("T")[0];
 }
 
-// Helper: convert drawTime ("03:15 PM") → Date object for today
-function parseDrawTimeToToday(timeStr) {
-  const [time, modifier] = timeStr.split(" ");
-  let [hours, minutes] = time.split(":").map(Number);
-  if (modifier === "PM" && hours !== 12) hours += 12;
-  if (modifier === "AM" && hours === 12) hours = 0;
+// Safely flatten nested or stringified drawTime fields
+function flattenDrawTimes(drawTimeField) {
+  const result = [];
+  if (!drawTimeField) return result;
+
+  try {
+    let field = drawTimeField;
+
+    // Remove extra quotes if double encoded
+    if (typeof field === "string") {
+      field = field.replace(/^"+|"+$/g, "").trim();
+      if (field.startsWith("[") || field.startsWith('"[')) {
+        const parsed = JSON.parse(field);
+        return flattenDrawTimes(parsed);
+      }
+    }
+
+    if (Array.isArray(field)) {
+      field.forEach((item) => result.push(...flattenDrawTimes(item)));
+    } else {
+      result.push(String(field).trim());
+    }
+  } catch (err) {
+    console.warn("⚠️ Error parsing drawTime:", drawTimeField, err.message);
+  }
+
+  return result;
+}
+
+/* 🔹 Get next 15-min draw slot in HH:MM AM/PM format */
+function getNextDrawSlot() {
   const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+  const minutes = now.getMinutes();
+  const remainder = minutes % 15;
+
+  if (remainder !== 0) {
+    now.setMinutes(minutes + (15 - remainder)); // round up to next 15-min
+  }
+
+  now.setSeconds(0);
+  now.setMilliseconds(0);
+
+  let hours = now.getHours();
+  const mins = now.getMinutes();
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12 || 12;
+
+  const hourStr = hours < 10 ? "0" + hours : hours;
+  const minuteStr = mins < 10 ? "0" + mins : mins;
+  return `${hourStr}:${minuteStr} ${ampm}`;
 }
 
+/* 🔹 Get next 15-min slot as Date object */
+function getNextDrawSlotDate() {
+  const now = new Date();
+  const minutes = now.getMinutes();
+  const remainder = minutes % 15;
+  if (remainder !== 0) now.setMinutes(minutes + (15 - remainder));
+  now.setSeconds(0);
+  now.setMilliseconds(0);
+  return now;
+}
+
+/* ---------- Controller 1: Show Today's Active Tickets ---------- */
 export const getTicketsByDrawTimeForToday = async (req, res) => {
   try {
     const { loginId } = req.body;
-    if (!loginId) {
-      return res.status(400).json({ error: "loginId is required" });
-    }
+    if (!loginId)
+      return res.status(400).json({ message: "loginId is required" });
 
-    const todayDate = getTodayDateString();
+    const today = todayDateStr();
     const tomorrow = new Date();
     tomorrow.setDate(new Date().getDate() + 1);
-    const tomorrowDate = tomorrow.toISOString().split("T")[0];
+    const tomorrowStr = tomorrow.toISOString().split("T")[0];
 
-    // 1️⃣ Fetch today's tickets for this user
+    console.log(`\n🧾 [TICKET CHECK] Admin ID: ${loginId}`);
+    console.log(`📅 Today: ${today}`);
+
     const todaysTickets = await tickets.findAll({
       where: {
         loginId,
         createdAt: {
-          [Op.gte]: `${todayDate} 00:00:00`,
-          [Op.lt]: `${tomorrowDate} 00:00:00`,
+          [Op.gte]: `${today} 00:00:00`,
+          [Op.lt]: `${tomorrowStr} 00:00:00`,
         },
       },
       order: [["createdAt", "ASC"]],
     });
 
-    if (!todaysTickets || todaysTickets.length === 0) {
+    if (!todaysTickets.length) {
+      console.warn("⚠️ No tickets found for today.");
       return res.json([]);
     }
 
-    // 2️⃣ Get all draw times from these tickets
-    const allDrawTimes = new Set();
-    todaysTickets.forEach((ticket) => {
-      const times = Array.isArray(ticket.drawTime)
-        ? ticket.drawTime
-        : [ticket.drawTime];
-      times.forEach((t) => allDrawTimes.add(t));
+    let allDrawTimes = [];
+    todaysTickets.forEach((t) => {
+      const times = flattenDrawTimes(t.drawTime);
+      allDrawTimes.push(...times);
+    });
+    allDrawTimes = [...new Set(allDrawTimes.filter(Boolean))];
+
+    console.log(`🕒 Unique draw times:`, JSON.stringify(allDrawTimes));
+
+    const targetSlot = getNextDrawSlot();
+    const hour12 = targetSlot.replace(/^0/, "");
+    const targetVariants = [targetSlot, hour12];
+
+    console.log(`🎯 Target Draw Slot: ${targetSlot}`);
+
+    const filteredTickets = todaysTickets.filter((t) => {
+      const times = flattenDrawTimes(t.drawTime);
+      return times.some((tm) => targetVariants.includes(tm));
     });
 
-    const drawTimesArray = Array.from(allDrawTimes);
-    if (drawTimesArray.length === 0) return res.json([]);
-
-    // 3️⃣ Find the next draw time (e.g. if now is 1:12 → pick 1:15)
-    const now = new Date();
-    let nextDraw = null;
-    let smallestDiff = Infinity;
-
-    for (const t of drawTimesArray) {
-      const drawDate = parseDrawTimeToToday(t);
-      const diff = drawDate - now;
-      if (diff >= 0 && diff < smallestDiff) {
-        smallestDiff = diff;
-        nextDraw = t;
-      }
+    if (!filteredTickets.length) {
+      console.log(`⚠️ No tickets found for drawTime: ${targetSlot}`);
+      return res.json([]);
     }
 
-    if (!nextDraw) {
-      return res.json([]); // no upcoming draw for today
-    }
+    console.log(`✅ ${filteredTickets.length} tickets matched draw: ${targetSlot}`);
 
-    // 4️⃣ Filter tickets that belong to this draw time
-    const filteredTickets = [];
-    todaysTickets.forEach((ticket) => {
-      const times = Array.isArray(ticket.drawTime)
-        ? ticket.drawTime
-        : [ticket.drawTime];
-      if (times.includes(nextDraw)) {
-        filteredTickets.push({
-          drawTime: nextDraw,
-          drawDate: todayDate,
-          ticketNumber: ticket.id,
-          totalPoints: ticket.totalPoints,
-        });
-      }
-    });
-
-    // 5️⃣ Return clean response
-    res.json([
+    return res.json([
       {
-        drawTime: nextDraw,
-        drawDate: todayDate,
-        tickets: filteredTickets,
+        drawTime: targetSlot,
+        drawDate: today,
+        tickets: filteredTickets.map((t) => ({
+          id: t.id,
+          loginId: t.loginId,
+          drawTime: t.drawTime,
+          ticketNumber: t.ticketNumber,
+          totalPoints: t.totalPoints,
+          totalQuatity: t.totalQuatity,
+          createdAt: t.createdAt,
+        })),
       },
     ]);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Something went wrong" });
+    console.error("🔥 Error in getTicketsByDrawTimeForToday:", error);
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 };
 
-
+/* ---------- Controller 2: Cancel Ticket by Ticket Number ---------- */
 export const deleteTicketByNumber = async (req, res) => {
-  const { ticketNo } = req.body; // ticketNo should be the ticket's id
+  const { ticketNo } = req.body;
+  if (!ticketNo)
+    return res.status(400).json({ error: "ticketNo is required" });
 
-  if (!ticketNo) {
-    return res.status(400).json({ error: "ticketNo (id) is required" });
-  }
-
-  // Use a transaction for safety
   const t = await sequelizeCon.transaction();
   try {
-    // 1. Find the ticket by id
-    const ticket = await tickets.findOne({
-      where: { id: ticketNo },
-      transaction: t,
+    console.log(`🗑️ Request to delete ticket: ${ticketNo}`);
+
+    const normalizedTicketNo = ticketNo
+      .replace(/[{}"]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const allTickets = await tickets.findAll({ transaction: t });
+    const matchedTicket = allTickets.find((tk) => {
+      const stored =
+        typeof tk.ticketNumber === "object"
+          ? JSON.stringify(tk.ticketNumber)
+          : tk.ticketNumber;
+      const normalizedStored = stored
+        .replace(/[{}"]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      return normalizedStored === normalizedTicketNo;
     });
 
-    if (!ticket) {
+    if (!matchedTicket) {
       await t.rollback();
+      console.warn(`⚠️ Ticket "${ticketNo}" not found.`);
       return res.status(404).json({ error: "Ticket not found" });
     }
 
-    // 2. Move to cancelledTickets (use "totalQuatity" here)
-    await cancelledTickets.create({
-      gameTime: ticket.gameTime,
-      loginId: ticket.loginId,
-      ticketNumber: ticket.ticketNumber,
-      totalQuatity: ticket.totalQuatity, // <-- spelling kept as you want!
-      totalPoints: ticket.totalPoints,
-      drawTime: ticket.drawTime,
-    }, { transaction: t });
+    await cancelledTickets.create(
+      {
+        gameTime: matchedTicket.gameTime,
+        loginId: matchedTicket.loginId,
+        ticketNumber: matchedTicket.ticketNumber,
+        totalQuatity: matchedTicket.totalQuatity,
+        totalPoints: matchedTicket.totalPoints,
+        drawTime: matchedTicket.drawTime,
+      },
+      { transaction: t }
+    );
 
-    // 3. Delete from tickets by id
+    console.log(`📦 Ticket moved to cancelledTickets successfully.`);
+
     await tickets.destroy({
-      where: { id: ticketNo },
+      where: { id: matchedTicket.id },
       transaction: t,
     });
 
-    // 4. Commit
     await t.commit();
+    console.log(`✅ Ticket ID ${matchedTicket.id} deleted successfully.`);
 
-    res.json({ message: "Ticket cancelled and moved to cancelledTickets" });
+    return res.json({
+      message: "Ticket cancelled and moved to cancelledTickets successfully.",
+      deletedTicket: {
+        id: matchedTicket.id,
+        loginId: matchedTicket.loginId,
+        drawTime: matchedTicket.drawTime,
+        totalPoints: matchedTicket.totalPoints,
+        totalQuatity: matchedTicket.totalQuatity,
+      },
+    });
   } catch (error) {
     await t.rollback();
-    console.error(error);
-    res.status(500).json({ error: "Something went wrong" });
+    console.error("🔥 Error deleting ticket:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+/* ---------- Controller 3: Show Today's Cancelled Tickets (using createdAt) ---------- */
+export const getCancelledTicketsForToday = async (req, res) => {
+  try {
+    const { loginId } = req.body;
+    if (!loginId)
+      return res.status(400).json({ message: "loginId is required" });
+
+    const today = todayDateStr();
+    const tomorrow = new Date();
+    tomorrow.setDate(new Date().getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split("T")[0];
+
+    console.log(`\n🧾 [CANCELLED TICKET CHECK] Admin ID: ${loginId}`);
+    console.log(`📅 Today: ${today}`);
+
+    // Fetch all cancelled tickets for today
+    const todaysTickets = await cancelledTickets.findAll({
+      where: {
+        loginId,
+        createdAt: {
+          [Op.gte]: `${today} 00:00:00`,
+          [Op.lt]: `${tomorrowStr} 00:00:00`,
+        },
+      },
+      order: [["createdAt", "ASC"]],
+    });
+
+    if (!todaysTickets.length) {
+      console.warn("⚠️ No cancelled tickets found for today.");
+      return res.json([]);
+    }
+
+    // Get next 15-minute slot
+    const nextSlot = getNextDrawSlotDate();
+    const windowStart = new Date(nextSlot.getTime() - 15 * 60 * 1000);
+    const windowEnd = new Date(nextSlot);
+
+    console.log(`🎯 Target slot window: ${windowStart.toISOString()} → ${windowEnd.toISOString()}`);
+
+    // Filter tickets where createdAt is between (slot-15min, slot)
+    const filteredTickets = todaysTickets.filter((t) => {
+      const created = new Date(t.createdAt);
+      return created >= windowStart && created < windowEnd;
+    });
+
+    if (!filteredTickets.length) {
+      console.log(`⚠️ No cancelled tickets found in this time window.`);
+      return res.json([]);
+    }
+
+    console.log(`✅ ${filteredTickets.length} cancelled tickets found for current slot.`);
+
+    return res.json([
+      {
+        drawTime: getNextDrawSlot(),
+        drawDate: today,
+        tickets: filteredTickets.map((t) => ({
+          id: t.id,
+          loginId: t.loginId,
+          drawTime: t.drawTime,
+          ticketNumber: t.ticketNumber,
+          totalPoints: t.totalPoints,
+          totalQuatity: t.totalQuatity,
+          createdAt: t.createdAt,
+        })),
+      },
+    ]);
+  } catch (error) {
+    console.error("🔥 Error fetching cancelled tickets:", error);
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 };

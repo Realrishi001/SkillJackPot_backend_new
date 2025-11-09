@@ -4,7 +4,7 @@ import { getNavbarDetails, getTicketsByDrawTime, getWinningNumbersByLoginId } fr
 const router = express.Router();
 
 router.post("/get-winning-numbers", getTicketsByDrawTime);
-router.post("/get-winning-slots", getWinningNumbersByLoginId);
+router.get("/get-winning-slots", getWinningNumbersByLoginId);
 router.post("/navbar-details", getNavbarDetails);
 
 export default router;

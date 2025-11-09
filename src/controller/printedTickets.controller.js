@@ -16,7 +16,7 @@ export const savePrintedTickets = async (req, res) => {
       drawTime,
     } = req.body;
 
-    // ✅ Log incoming data for debugging
+    // ✅ Log incoming request for debugging
     console.log("🧾 Incoming Ticket Data:", req.body);
 
     // --- Validation ---
@@ -26,6 +26,27 @@ export const savePrintedTickets = async (req, res) => {
         .status(400)
         .json({ message: "drawTime must be a non-empty array." });
     }
+
+    // ✅ Check the real drawTime structure
+    console.log("🎯 Raw drawTime received:", JSON.stringify(drawTime, null, 2));
+
+    // ✅ Detect nested arrays like [["11:45 AM"], ["12:00 PM"]]
+    let normalizedDrawTimes = [];
+
+    drawTime.forEach((item) => {
+      if (Array.isArray(item)) {
+        // Flatten inner array elements
+        normalizedDrawTimes.push(...item);
+      } else {
+        normalizedDrawTimes.push(item);
+      }
+    });
+
+    // ✅ Log normalized draw times
+    console.log("🧩 Normalized Draw Times (Flattened):", normalizedDrawTimes);
+
+    // ✅ Assign back normalized array before saving
+    drawTime = normalizedDrawTimes;
 
     const basePoints = Number(totalPoints);
     if (!Number.isFinite(basePoints) || basePoints < 0) {
@@ -76,7 +97,7 @@ export const savePrintedTickets = async (req, res) => {
         required: finalDeductPoints,
       });
     }
-    
+
     // --- Deduct balance after applying commission ---
     admin.balance = currentBalance - finalDeductPoints;
     await admin.save({ transaction: t });
@@ -91,7 +112,7 @@ export const savePrintedTickets = async (req, res) => {
         ticketNumber,
         totalQuatity,
         totalPoints: basePoints,
-        drawTime,
+        drawTime, // ✅ Flattened and cleaned
         commissionApplied: commissionPercent,
         commissionEarned: commissionAmount,
         deductedPoints: finalDeductPoints,
@@ -103,6 +124,7 @@ export const savePrintedTickets = async (req, res) => {
     await t.commit();
 
     console.log("🎟️ Ticket saved successfully:", newTicket.id);
+    console.log("✅ Final Saved DrawTime:", newTicket.drawTime);
 
     return res.status(201).json({
       message: "Ticket saved and commission applied successfully.",
@@ -110,7 +132,7 @@ export const savePrintedTickets = async (req, res) => {
       commissionApplied: commissionPercent,
       commissionEarned: Number(commissionAmount.toFixed(2)),
       deductedPoints: Number(finalDeductPoints.toFixed(2)),
-      previousBalance: Number(currentBalance.toFixed(2)), // ✅ included in response too
+      previousBalance: Number(currentBalance.toFixed(2)),
       newBalance: Number(admin.balance.toFixed(2)),
     });
   } catch (error) {
@@ -126,15 +148,57 @@ export const savePrintedTickets = async (req, res) => {
 
 
 
-const getPrintedTickets = async (req, res) => {
+
+function todayDateStrIST() {
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000; // +5:30 hrs in ms
+  const istNow = new Date(now.getTime() + istOffset);
+  return istNow.toISOString().split("T")[0];
+}
+
+/* ---------- Controller ---------- */
+export const getPrintedTickets = async (req, res) => {
   try {
-    const allTickets = await tickets.findAll({
-      attributes: ["id", "gameTime", "totalPoints"], // Removed ticketNumber as id is ticketNo
-      order: [["id", "DESC"]]
+    const { loginId } = req.body;
+
+    if (!loginId) {
+      return res.status(400).json({ message: "loginId (adminId) is required" });
+    }
+
+    const today = todayDateStrIST();
+    const tomorrow = new Date(new Date().getTime() + 24 * 60 * 60 * 1000);
+    const tomorrowStr = new Date(tomorrow.getTime() + 5.5 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0];
+
+    console.log(`\n🧾 [REPRINT TICKET CHECK] Admin ID: ${loginId}`);
+    console.log(`📅 Today (IST): ${today}`);
+
+    const todaysTickets = await tickets.findAll({
+      where: {
+        loginId,
+        createdAt: {
+          [Op.gte]: `${today} 00:00:00`,
+          [Op.lt]: `${tomorrowStr} 00:00:00`,
+        },
+      },
+      attributes: [
+        "id",
+        "gameTime",
+        "drawTime",
+        "ticketNumber",
+        "totalPoints",
+        "totalQuatity",
+        "createdAt",
+      ],
+      order: [["id", "DESC"]],
     });
 
-    const result = allTickets.map(t => {
-      // Split the date and time
+    if (!todaysTickets.length) {
+      return res.status(200).json({ message: "No tickets found for today", data: [] });
+    }
+
+    const result = todaysTickets.map((t) => {
       let gameDate = "";
       let gameTime = "";
       if (typeof t.gameTime === "string") {
@@ -142,21 +206,30 @@ const getPrintedTickets = async (req, res) => {
         gameDate = date || "";
         gameTime = timeParts.join(" ") || "";
       }
+
       return {
-        ticketNo: t.id,        // Use id as ticketNo
+        ticketNo: t.id,
         gameDate,
         gameTime,
-        totalPoints: t.totalPoints
+        drawTime: t.drawTime,
+        ticketNumber: t.ticketNumber,
+        totalPoints: t.totalPoints,
+        totalQuatity: t.totalQuatity,
       };
     });
 
-    return res.status(200).json({ message: "success", data: result });
+    console.log(`✅ Found ${result.length} tickets for admin ${loginId} (IST Date: ${today}).`);
+
+    return res.status(200).json({
+      message: "success",
+      date: today,
+      data: result,
+    });
   } catch (err) {
-    console.error("Error fetching tickets:", err);
+    console.error("🔥 Error fetching today's tickets:", err);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-
 
 export const subtractAdminBalance = async (req, res) => {
   try {
@@ -212,6 +285,3 @@ export const subtractAdminBalance = async (req, res) => {
   }
 };
 
-
-
-export { getPrintedTickets };
