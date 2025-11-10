@@ -2,6 +2,8 @@ import { tickets } from "../models/ticket.model.js";
 import { winningNumbers } from "../models/winningNumbers.model.js";
 import { claimedTickets } from "../models/claimedTickets.model.js";
 import { Op } from "sequelize";
+import Admin from "../models/admins.model.js";
+import dayjs from "dayjs";
 
 /* ------------------------- HELPER FUNCTIONS ------------------------- */
 
@@ -31,33 +33,6 @@ function parseTicketNumberString(ticketNumberStr) {
 function normalizeDrawTime(str) {
   if (!str) return "";
   return str.replace(/^0(\d:)/, "$1");
-}
-
-// Parse ticket numbers robustly
-function extractTicketNumbers(ticketNumbersArr) {
-  if (!ticketNumbersArr) return [];
-
-  if (typeof ticketNumbersArr === "string") {
-    try {
-      const arr = JSON.parse(ticketNumbersArr);
-      if (Array.isArray(arr)) ticketNumbersArr = arr;
-      else return [ticketNumbersArr];
-    } catch {
-      // fallback: comma-separated list
-      return ticketNumbersArr.split(",").map((str) => str.trim());
-    }
-  }
-
-  if (!Array.isArray(ticketNumbersArr)) return [];
-
-  return ticketNumbersArr
-    .map(
-      (obj) =>
-        obj.ticketNumber ||
-        obj.number ||
-        (typeof obj === "string" ? obj : "")
-    )
-    .filter(Boolean);
 }
 
 /* ------------------------- MAIN CONTROLLER ------------------------- */
@@ -521,48 +496,95 @@ export const claimTicket = async (req, res) => {
   }
 };
 
-// 3. Get claimed tickets by loginId, date range
+const getTotalQuantity = (ticketNumbers) => {
+  if (!Array.isArray(ticketNumbers)) return 0;
+  return ticketNumbers.reduce((sum, item) => sum + (item?.quantity || 0), 0);
+};
+
+const extractTicketNumbers = (ticketNumbers) => {
+  if (!Array.isArray(ticketNumbers)) return [];
+  return ticketNumbers.map((item) => item?.number);
+};
+
 export const getClaimedTickets = async (req, res) => {
   try {
-    const { loginId, fromDate, toDate } = req.body;
-    if (!loginId || !fromDate || !toDate) {
-      return res.status(400).json({ error: "loginId, fromDate, and toDate are required." });
+    let { fromDate, toDate } = req.body;
+
+    if (!fromDate || !toDate) {
+      const today = dayjs().format("YYYY-MM-DD");
+      fromDate = today;
+      toDate = today;
     }
 
-    // Query: claimedDate between fromDate and toDate (inclusive)
-    const where = {
-      loginId: loginId,
-      claimedDate: {
-        [Op.gte]: fromDate,
-        [Op.lte]: toDate,
-      },
-    };
-
-    // Fetch all claimed tickets for this loginId in date range
     const claimed = await claimedTickets.findAll({
-      where,
-      order: [["claimedDate", "DESC"], ["claimedTime", "DESC"]],
+      where: {
+        claimedDate: {
+          [Op.gte]: fromDate,
+          [Op.lte]: toDate,
+        },
+      },
+      order: [["drawDate", "DESC"], ["drawTime", "DESC"]],
     });
 
-    // Format result
-    const result = claimed.map(row => {
+    if (!claimed.length) {
+      return res.status(200).json({
+        message: `No claimed tickets found between ${fromDate} and ${toDate}`,
+        totalRecords: 0,
+        distributedData: {},
+      });
+    }
+
+    const uniqueLoginIds = [...new Set(claimed.map((row) => row.loginId))];
+    const admins = await Admin.findAll({
+      where: { id: uniqueLoginIds },
+      attributes: ["id", "shopName", "contactPersonName", "userName"],
+    });
+
+    const adminMap = {};
+    admins.forEach((a) => {
+      adminMap[a.id] = {
+        shopName: a.shopName,
+        contactPersonName: a.contactPersonName,
+        userName: a.userName,
+      };
+    });
+
+    const formattedData = claimed.map((row) => {
       let ticketNumbersArr = row.ticketNumbers;
       if (typeof ticketNumbersArr === "string") {
-        try { ticketNumbersArr = JSON.parse(ticketNumbersArr); } catch { ticketNumbersArr = []; }
+        try {
+          ticketNumbersArr = JSON.parse(ticketNumbersArr);
+        } catch {
+          ticketNumbersArr = [];
+        }
       }
+
+      const admin = adminMap[row.loginId] || {
+        shopName: "Unknown",
+        contactPersonName: "N/A",
+        userName: "N/A",
+      };
+
       return {
         ticketId: row.TicketId,
-        totalQuantity: getTotalQuantity(ticketNumbersArr),
-        ticketNumbers: extractTicketNumbers(ticketNumbersArr),
+        adminId: row.loginId,
+        shopName: admin.shopName,
+        contactPersonName: admin.contactPersonName,
+        userName: admin.userName,
         drawDate: row.drawDate,
         drawTime: row.drawTime,
         claimedDate: row.claimedDate,
         claimedTime: row.claimedTime,
+        totalQuantity: getTotalQuantity(ticketNumbersArr),
+        ticketNumbers: extractTicketNumbers(ticketNumbersArr),
       };
     });
 
-    return res.status(200).json(result);
-
+    return res.status(200).json({
+      message: `Claimed tickets between ${fromDate} and ${toDate}`,
+      totalRecords: formattedData.length,
+      data: formattedData,
+    });
   } catch (error) {
     console.error("Error in getClaimedTickets:", error);
     res.status(500).json({ error: "Internal server error" });
