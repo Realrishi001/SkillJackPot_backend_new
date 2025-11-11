@@ -2,6 +2,7 @@ import { tickets } from "../models/ticket.model.js";
 import { cancelledTickets } from "../models/cancelledTicket.model.js";
 import { sequelizeCon } from "../init/dbConnection.js";
 import { Op } from "sequelize";
+import Admin from "../models/admins.model.js";
 
 /* ---------- Helpers ---------- */
 
@@ -162,11 +163,13 @@ export const deleteTicketByNumber = async (req, res) => {
   try {
     console.log(`🗑️ Request to delete ticket: ${ticketNo}`);
 
+    // --- Normalize ticket number ---
     const normalizedTicketNo = ticketNo
       .replace(/[{}"]/g, "")
       .replace(/\s+/g, " ")
       .trim();
 
+    // --- Find ticket directly ---
     const allTickets = await tickets.findAll({ transaction: t });
     const matchedTicket = allTickets.find((tk) => {
       const stored =
@@ -186,6 +189,34 @@ export const deleteTicketByNumber = async (req, res) => {
       return res.status(404).json({ error: "Ticket not found" });
     }
 
+    console.log(`🎟️ Matched ticket ID: ${matchedTicket.id}`);
+
+    // --- Find Admin by loginId from ticket ---
+    const admin = await Admin.findOne({
+      where: { id: matchedTicket.loginId },
+      transaction: t,
+      lock: t.LOCK.UPDATE, // prevent concurrent writes
+    });
+
+    if (!admin) {
+      await t.rollback();
+      console.warn(`⚠️ Admin not found for loginId: ${matchedTicket.loginId}`);
+      return res.status(404).json({ error: "Admin not found" });
+    }
+
+    // --- Perform numeric addition safely ---
+    const previousBalance = Number(admin.balance) || 0;
+    const ticketPoints = Number(matchedTicket.totalPoints) || 0;
+    const newBalance = previousBalance + ticketPoints;
+
+    admin.balance = newBalance;
+    await admin.save({ transaction: t });
+
+    console.log(
+      `💰 Admin #${admin.id} balance updated: ${previousBalance} + ${ticketPoints} = ${newBalance}`
+    );
+
+    // --- Move ticket to cancelledTickets table ---
     await cancelledTickets.create(
       {
         gameTime: matchedTicket.gameTime,
@@ -200,6 +231,7 @@ export const deleteTicketByNumber = async (req, res) => {
 
     console.log(`📦 Ticket moved to cancelledTickets successfully.`);
 
+    // --- Delete the ticket from main table ---
     await tickets.destroy({
       where: { id: matchedTicket.id },
       transaction: t,
@@ -209,13 +241,20 @@ export const deleteTicketByNumber = async (req, res) => {
     console.log(`✅ Ticket ID ${matchedTicket.id} deleted successfully.`);
 
     return res.json({
-      message: "Ticket cancelled and moved to cancelledTickets successfully.",
+      message:
+        "Ticket cancelled, points refunded to admin, and record moved to cancelledTickets successfully.",
       deletedTicket: {
         id: matchedTicket.id,
         loginId: matchedTicket.loginId,
         drawTime: matchedTicket.drawTime,
         totalPoints: matchedTicket.totalPoints,
         totalQuatity: matchedTicket.totalQuatity,
+      },
+      refundDetails: {
+        refundedTo: admin.userName || admin.contactPersonName || "Admin",
+        refundedPoints: ticketPoints,
+        previousBalance,
+        newBalance,
       },
     });
   } catch (error) {
@@ -224,6 +263,8 @@ export const deleteTicketByNumber = async (req, res) => {
     return res.status(500).json({ error: "Internal Server Error" });
   }
 };
+
+
 
 /* ---------- Controller 3: Show Today's Cancelled Tickets (using createdAt) ---------- */
 export const getCancelledTicketsForToday = async (req, res) => {
