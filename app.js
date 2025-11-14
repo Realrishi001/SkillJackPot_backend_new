@@ -18,6 +18,9 @@ import cancelTicketRouter from './src/routes/cancelTicket.router.js'
 import superadminRouter from './src/routes/superadmin.router.js'
 import winningNumberRouter from './src/routes/winningNumbers.router.js'
 import threedRouter from './src/routes/threed.rotuer.js'
+import adminBlockRouter from './src/routes/blockAdmin.router.js'
+
+import "./src/schedular/autoDrawScheduler.js"
 
 dotenv.config();
 
@@ -68,7 +71,9 @@ app.use("/api", cancelTicketRouter);
 app.use("/api", superadminRouter);
 app.use("/api", winningNumberRouter);
 app.use("/api", threedRouter);
+app.use("/api", adminBlockRouter);
 // Start the server
+
 app.listen(port, ()=> {
     console.log(`Server is running on port ${port}`);
 })

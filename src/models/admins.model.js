@@ -69,6 +69,17 @@ const Admin = sequelizeCon.define(
       type: DataTypes.INTEGER,
       allowNull: true,
     },
+    blockStatus: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+    },
+
+    blockTill: {
+      type: DataTypes.DATE,
+      allowNull: true,   
+    },
+
   },
   {
     timestamps: true,

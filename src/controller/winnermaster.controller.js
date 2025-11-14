@@ -105,9 +105,7 @@ export const getTodaysTicketNumbers = async (req, res) => {
 
 export const saveWinningNumbers = async (req, res) => {
   try {
-    // Get fields from req.body (excluding loginId!)
     const { winningNumbers: numbers, totalPoints, DrawTime, drawDate } = req.body;
-    console.log(winningNumbers, totalPoints, drawDate, DrawTime);
 
     if (
       !numbers ||
@@ -119,57 +117,96 @@ export const saveWinningNumbers = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "Missing or invalid required fields. Required: winningNumbers (array), totalPoints, DrawTime, drawDate",
+        message:
+          "Missing fields. Required: winningNumbers (array), totalPoints, DrawTime, drawDate",
       });
     }
 
-    // Get all admins (just their ids)
-    const admins = await Admin.findAll({ attributes: ["id"] });
+    const loginId = 0; // 🔥 GLOBAL RESULT FIXED FOR ALL ADMINS
 
-    if (!admins.length) {
-      return res.status(404).json({ success: false, message: "No admins found." });
-    }
+    // Check if record already exists for this draw time & date
+    const existing = await winningNumbers.findOne({
+      where: { loginId, DrawTime, drawDate },
+    });
 
-    // Track results for each admin
-    let results = [];
-    for (const admin of admins) {
-      const loginId = admin.id;
+    let record, action;
 
-      // Check for existing record
-      const existing = await winningNumbers.findOne({
-        where: { loginId, DrawTime, drawDate },
+    if (existing) {
+      // Update existing record
+      record = await existing.update({
+        winningNumbers: numbers,
+        totalPoints,
       });
-
-      let record, action;
-      if (existing) {
-        record = await existing.update({
-          winningNumbers: numbers,
-          totalPoints,
-        });
-        action = "updated";
-      } else {
-        record = await winningNumbers.create({
-          loginId,
-          winningNumbers: numbers,
-          totalPoints,
-          DrawTime,
-          drawDate,
-        });
-        action = "created";
-      }
-      results.push({ loginId, action, data: record });
+      action = "updated";
+    } else {
+      // Create new global record
+      record = await winningNumbers.create({
+        loginId,
+        winningNumbers: numbers,
+        totalPoints,
+        DrawTime,
+        drawDate,
+      });
+      action = "created";
     }
 
     return res.status(200).json({
       success: true,
-      message: "Winning numbers processed for all admins",
-      results, // Contains one entry per admin, showing 'created' or 'updated'
+      message: `Winning numbers ${action} successfully`,
+      data: record,
     });
   } catch (error) {
-    console.error("Error saving winning numbers for all admins:", error);
+    console.error("Error saving winning numbers:", error);
     return res.status(500).json({
       success: false,
-      message: "Server error while saving winning numbers for all admins",
+      message: "Server error while saving winning numbers",
+      error: error.message,
+    });
+  }
+};
+
+
+export const getSavedWinnerNumbers = async (req, res) => {
+  try {
+    const { drawDate, DrawTime } = req.body;
+
+    if (!drawDate || !DrawTime) {
+      return res.status(400).json({
+        success: false,
+        message: "drawDate and DrawTime are required"
+      });
+    }
+
+    // Find any existing record (all admins have same data)
+    const existing = await winningNumbers.findOne({
+      where: { drawDate, DrawTime },
+    });
+
+    if (!existing) {
+      return res.status(200).json({
+        success: false,
+        exists: false,
+        message: "No saved results for this draw"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      exists: true,
+      message: "Saved results found",
+      data: {
+        winningNumbers: existing.winningNumbers,
+        totalPoints: existing.totalPoints,
+        drawDate: existing.drawDate,
+        DrawTime: existing.DrawTime
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching saved results:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error fetching saved results",
       error: error.message,
     });
   }

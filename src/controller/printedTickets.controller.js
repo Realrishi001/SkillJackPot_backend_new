@@ -1,4 +1,3 @@
-// controllers/tickets.controller.js
 import { Op } from "sequelize";
 import { sequelizeCon } from "../init/dbConnection.js";
 import Admin from "../models/admins.model.js";
@@ -16,7 +15,6 @@ export const savePrintedTickets = async (req, res) => {
       drawTime,
     } = req.body;
 
-    // ✅ Log incoming request for debugging
     console.log("🧾 Incoming Ticket Data:", req.body);
 
     // --- Validation ---
@@ -27,25 +25,20 @@ export const savePrintedTickets = async (req, res) => {
         .json({ message: "drawTime must be a non-empty array." });
     }
 
-    // ✅ Check the real drawTime structure
     console.log("🎯 Raw drawTime received:", JSON.stringify(drawTime, null, 2));
 
-    // ✅ Detect nested arrays like [["11:45 AM"], ["12:00 PM"]]
+    // Normalize nested drawTime arrays
     let normalizedDrawTimes = [];
 
     drawTime.forEach((item) => {
       if (Array.isArray(item)) {
-        // Flatten inner array elements
         normalizedDrawTimes.push(...item);
       } else {
         normalizedDrawTimes.push(item);
       }
     });
 
-    // ✅ Log normalized draw times
-    console.log("🧩 Normalized Draw Times (Flattened):", normalizedDrawTimes);
-
-    // ✅ Assign back normalized array before saving
+    console.log("🧩 Normalized Draw Times:", normalizedDrawTimes);
     drawTime = normalizedDrawTimes;
 
     const basePoints = Number(totalPoints);
@@ -61,7 +54,7 @@ export const savePrintedTickets = async (req, res) => {
       return res.status(400).json({ message: "loginId is required." });
     }
 
-    // --- Lock admin record for safe balance update ---
+    // Lock admin record
     const admin = await Admin.findOne({
       where: { id: loginId },
       transaction: t,
@@ -76,10 +69,9 @@ export const savePrintedTickets = async (req, res) => {
     const currentBalance = Number(admin.balance || 0);
     const commissionPercent = Number(admin.commission || 0);
 
-    // ✅ Log previous balance for reference
     console.log("💳 Previous Balance:", currentBalance.toFixed(2));
 
-    // 🧮 Commission calculation
+    // Commission calculation
     const commissionAmount = (basePoints * commissionPercent) / 100;
     const finalDeductPoints = basePoints - commissionAmount;
 
@@ -88,7 +80,7 @@ export const savePrintedTickets = async (req, res) => {
     console.log("💵 Commission Earned:", commissionAmount.toFixed(2));
     console.log("📉 Net Deduction from Balance:", finalDeductPoints.toFixed(2));
 
-    // --- Check sufficient balance ---
+    // Check sufficient balance
     if (currentBalance < finalDeductPoints) {
       await t.rollback();
       return res.status(400).json({
@@ -98,7 +90,7 @@ export const savePrintedTickets = async (req, res) => {
       });
     }
 
-    // --- Deduct balance after applying commission ---
+    // Deduct balance
     admin.balance = currentBalance - finalDeductPoints;
     await admin.save({ transaction: t });
 
@@ -111,8 +103,11 @@ export const savePrintedTickets = async (req, res) => {
         loginId,
         ticketNumber,
         totalQuatity,
-        totalPoints: basePoints,
-        drawTime, // ✅ Flattened and cleaned
+
+        // ✅ SAVE ONLY THE NET POINTS AFTER COMMISSION
+        totalPoints: Number(finalDeductPoints),
+
+        drawTime,
         commissionApplied: commissionPercent,
         commissionEarned: commissionAmount,
         deductedPoints: finalDeductPoints,
@@ -120,11 +115,10 @@ export const savePrintedTickets = async (req, res) => {
       { transaction: t }
     );
 
-    // --- Commit transaction ---
+    // Commit
     await t.commit();
 
     console.log("🎟️ Ticket saved successfully:", newTicket.id);
-    console.log("✅ Final Saved DrawTime:", newTicket.drawTime);
 
     return res.status(201).json({
       message: "Ticket saved and commission applied successfully.",
@@ -135,6 +129,7 @@ export const savePrintedTickets = async (req, res) => {
       previousBalance: Number(currentBalance.toFixed(2)),
       newBalance: Number(admin.balance.toFixed(2)),
     });
+
   } catch (error) {
     console.error("🔥 Error saving ticket:", error);
     try {
@@ -145,8 +140,6 @@ export const savePrintedTickets = async (req, res) => {
     return res.status(500).json({ message: "Internal Server Error" });
   }
 };
-
-
 
 
 function todayDateStrIST() {
