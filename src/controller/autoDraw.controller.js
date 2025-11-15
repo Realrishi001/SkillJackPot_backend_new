@@ -72,9 +72,6 @@ const randomSeriesFill = (prefix) => {
   return result;
 };
 
-/* ===========================================================
-       AUTO DRAW — GLOBAL RESULT (NO ADMIN REQUIRED)
-   =========================================================== */
 export const autoGenerateWinningNumbers = async (drawTime) => {
   try {
     const normalized = formatDrawTime(drawTime);
@@ -104,7 +101,7 @@ export const autoGenerateWinningNumbers = async (drawTime) => {
       attributes: ["ticketNumber", "totalPoints", "drawTime"],
     });
 
-    /* ------------------ FILTER MATCHING DRAW TIME ------------------ */
+    /* ------------------ FILTER BY DRAW TIME ------------------ */
     const filtered = all.filter((t) => {
       try {
         const times = Array.isArray(t.drawTime)
@@ -117,9 +114,9 @@ export const autoGenerateWinningNumbers = async (drawTime) => {
       }
     });
 
-    /* ------------------ IF NO TICKETS — RANDOM SERIES ------------------ */
+    /* ------------------ IF NO TICKETS → RETURN RANDOM SET ------------------ */
     if (!filtered.length) {
-      console.log("⚠ No tickets found → Saving RANDOM SERIES");
+      console.log("⚠ No tickets found → Saving RANDOM full series");
 
       const series10 = randomSeriesFill("10");
       const series30 = randomSeriesFill("30");
@@ -133,7 +130,6 @@ export const autoGenerateWinningNumbers = async (drawTime) => {
         drawDate,
       });
 
-      console.log(`✅ Empty result saved for ${normalized}`);
       return true;
     }
 
@@ -164,12 +160,12 @@ export const autoGenerateWinningNumbers = async (drawTime) => {
       }
     }
 
-    /* ------------------ PRIORITY SELECTION (DESC QTY) ------------------ */
+    /* ------------------ SORT BY QUANTITY DESC ------------------ */
     const sorted = Object.entries(totals)
       .map(([num, qty]) => ({ number: num, qty }))
       .sort((a, b) => b.qty - a.qty);
 
-    const winners = [];
+    let winners = [];
 
     for (let item of sorted) {
       if (item.qty <= qtyCapacity) {
@@ -183,11 +179,9 @@ export const autoGenerateWinningNumbers = async (drawTime) => {
       if (qtyCapacity <= 0) break;
     }
 
-    /* ------------------ FALLBACK: LEAST QTY FIRST ------------------ */
+    /* ------------------ FALLBACK SMALL QUANTITY FIRST ------------------ */
     if (qtyCapacity > 0) {
-      const fallback = sorted
-        .slice()
-        .sort((a, b) => a.qty - b.qty);
+      const fallback = sorted.slice().sort((a, b) => a.qty - b.qty);
 
       for (let item of fallback) {
         if (!winners.some((w) => w.number === item.number)) {
@@ -204,8 +198,8 @@ export const autoGenerateWinningNumbers = async (drawTime) => {
       }
     }
 
-    /* ------------------ LAST RESORT: SMALLEST NUMBER ------------------ */
-    if (winners.length === 0) {
+    /* ------------------ LAST RESORT ------------------ */
+    if (winners.length === 0 && sorted.length > 0) {
       const smallest = sorted[sorted.length - 1];
       winners.push({
         number: smallest.number,
@@ -214,17 +208,69 @@ export const autoGenerateWinningNumbers = async (drawTime) => {
       });
     }
 
-    /* ------------------ SAVE GLOBAL RESULT ------------------ */
+    /* =====================================================
+         ADD REMAINING RANDOM NON-WINNER NUMBERS
+       ===================================================== */
+
+    const final10 = [];
+    const final30 = [];
+    const final50 = [];
+
+    const usedWinners = new Set(winners.map((w) => w.number));
+
+    // Helper random generator
+    const randomFill = (prefix, used, existingArr) => {
+      const result = [...existingArr];
+
+      while (result.length < 10) {
+        const r = Math.floor(Math.random() * 100)
+          .toString()
+          .padStart(2, "0");
+
+        const num = `${prefix}${r}`;
+
+        if (!used.has(num)) {
+          used.add(num);
+          result.push({
+            number: num,
+            quantity: 0,
+            value: 0,
+          });
+        }
+      }
+
+      return result;
+    };
+
+    // Fill winners into correct series groups first
+    winners.forEach((w) => {
+      if (w.number.startsWith("10")) final10.push(w);
+      else if (w.number.startsWith("30")) final30.push(w);
+      else if (w.number.startsWith("50")) final50.push(w);
+    });
+
+    // Now random-fill the remaining
+    const used = new Set(usedWinners);
+
+    const full10 = randomFill("10", used, final10);
+    const full30 = randomFill("30", used, final30);
+    const full50 = randomFill("50", used, final50);
+
+    const finalResult = [...full10, ...full30, ...full50];
+
+    /* ------------------ SAVE ------------------ */
     await winningNumbers.create({
       loginId: 0,
-      winningNumbers: winners,
+      winningNumbers: finalResult,
       totalPoints,
       DrawTime: normalized,
       drawDate,
     });
 
-    console.log(`🎉 WINNERS SAVED FOR ${normalized}`);
+    console.log(`🎉 FULL 30-NUMBER RESULT SAVED FOR ${normalized}`);
+
     return true;
+
   } catch (err) {
     console.error("❌ Auto Draw Error:", err);
     return false;
